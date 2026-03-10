@@ -10,6 +10,7 @@ declare module "next-auth" {
             lastName: string;
             desiredHours?: number;
             emailVerified: boolean | null;
+            managedLocations?: string[];
         } & DefaultSession["user"];
     }
 
@@ -20,6 +21,7 @@ declare module "next-auth" {
         firstName: string;
         lastName: string;
         desiredHours?: number;
+        managedLocations?: string[];
     }
 }
 
@@ -32,5 +34,6 @@ declare module "next-auth/jwt" {
         firstName?: string;
         lastName?: string;
         desiredHours?: number;
+        managedLocations?: string[];
     }
 }

@@ -2,10 +2,10 @@ import type { Metadata } from "next";
 import localFont from "next/font/local";
 import "@/styles/globals.css";
 import { APP_DESCRIPTION, APP_NAME, SERVER_URL } from "@/lib/constants";
-import { Geist } from "next/font/google";
-import { cn } from "@/lib/utils";
-
-const geist = Geist({subsets:['latin'],variable:'--font-sans'});
+import clsx from "clsx";
+import { Toaster } from "sonner";
+import { SessionProvider } from "next-auth/react";
+import { ReactQueryProvider } from "@/providers/ReactQueryProvider";
 
 const inter = localFont({
     src: [
@@ -31,16 +31,9 @@ export default async function RootLayout({
 }: Readonly<{
     children: React.ReactNode;
 }>) {
-    const session = await auth();
-
     return (
-        <html lang="en" className={cn("font-sans", geist.variable)}>
-            <body
-                className={clsx(
-                    `${inter.className} antialiased`,
-                    session?.user && "overflow-hidden",
-                )}
-            >
+        <html lang="en" className={clsx(`${inter.className} antialiased`)}>
+            <body className={clsx(`${inter.className} antialiased`)}>
                 <SessionProvider>
                     <ReactQueryProvider>{children}</ReactQueryProvider>
                 </SessionProvider>

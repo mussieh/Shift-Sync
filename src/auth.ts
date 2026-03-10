@@ -15,20 +15,25 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
                 password: { label: "Password", type: "password" },
             },
             async authorize(credentials) {
-                if (!credentials?.email || !credentials?.password) return null;
+                if (!credentials) return null;
 
                 const parsed = loginSchema.safeParse(credentials);
                 if (!parsed.success) return null;
 
-                const { email, password } = parsed.data;
+                const { email, password, role } = parsed.data;
 
-                const user = await prisma.user.findUnique({ where: { email } });
+                const user = await prisma.user.findUnique({
+                    where: { email },
+                });
+
                 if (!user) return null;
 
-                const isValid = compareSync(password, user.password!);
+                // role validation
+                if (user.role !== role) return null;
+
+                const isValid = compareSync(password, user.password);
                 if (!isValid) return null;
 
-                // ⚡ Map Prisma User to NextAuth User
                 return {
                     id: user.id,
                     email: user.email,

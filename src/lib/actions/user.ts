@@ -1,33 +1,41 @@
 "use server";
 
-import { signIn } from "@/auth";
-import { handleError } from "../constants";
+import { prisma } from "@/lib/db/prisma";
+import { auth, signIn } from "@/auth";
+import { z } from "zod";
 import { loginSchema } from "../schemas/auth";
 import { ErrorState } from "@/types/ErrorState";
-import { prisma } from "../db/prisma";
 
 export async function signInWithCredentials(
     prevState: ErrorState,
     formData: FormData,
-): Promise<ErrorState> {
+) {
     try {
-        const credentials = loginSchema.parse({
+        const data = loginSchema.parse({
             email: formData.get("email"),
             password: formData.get("password"),
+            role: formData.get("role"),
         });
 
-        // 1️⃣ Find the user first
         const user = await prisma.user.findUnique({
-            where: { email: credentials.email },
+            where: { email: data.email },
         });
 
         if (!user) {
-            return { success: false, message: "Invalid email or password" };
+            return { success: false, message: "User not found" };
         }
 
-        // 3️⃣ Proceed to sign in
+        if (user.role !== data.role) {
+            return {
+                success: false,
+                message: `This account is not a ${data.role}`,
+            };
+        }
+
         const result = await signIn("credentials", {
-            ...credentials,
+            email: data.email,
+            password: data.password,
+            role: data.role,
             redirect: false,
         });
 
@@ -35,8 +43,17 @@ export async function signInWithCredentials(
             return { success: false, message: result.error };
         }
 
-        return { success: true, message: "Signed in successfully" };
-    } catch (error) {
-        return handleError(error, "Invalid email or password");
+        return { success: true, message: "Login successful" };
+    } catch {
+        return { success: false, message: "Invalid credentials" };
     }
+}
+
+export async function requireAuth() {
+    const session = await auth();
+    if (!session || !session.user) {
+        throw new Error("Unauthorized");
+    }
+
+    return session.user;
 }
