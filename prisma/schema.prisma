@@ -1,0 +1,332 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  ADMIN
+  MANAGER
+  STAFF
+}
+
+enum ShiftStatus {
+  DRAFT
+  PUBLISHED
+}
+
+enum SwapStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum ExceptionType {
+  UNAVAILABLE
+  AVAILABLE
+}
+
+model User {
+  id           String @id @default(cuid())
+  email        String @unique
+  password     String
+  role         Role
+  firstName    String
+  lastName     String
+  desiredHours Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /**
+   * RELATIONS
+   */
+
+  certifications Certification[]
+
+  availabilities         Availability[]
+  availabilityExceptions AvailabilityException[]
+
+  shifts ShiftAssignment[]
+
+  notifications Notification[]
+
+  preferences NotificationPreference?
+
+  swapRequestsFrom SwapRequest[] @relation("SwapFromUser")
+  swapRequestsTo   SwapRequest[] @relation("SwapToUser")
+
+  dropRequests        DropRequest[] @relation("offeredBy")
+  claimedDropRequests DropRequest[] @relation("claimedBy")
+
+  auditLogs AuditLog[] @relation("performedBy")
+
+  managedLocations Location[]    @relation("LocationManagers")
+  swapRequests     SwapRequest[]
+}
+
+model Location {
+  id       String @id @default(cuid())
+  name     String
+  timezone String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  /**
+   * RELATIONS
+   */
+
+  managers       User[]          @relation("LocationManagers")
+  certifications Certification[]
+  shifts         Shift[]
+}
+
+model Skill {
+  id   String @id @default(cuid())
+  name String @unique
+
+  certifications    Certification[]    @relation("CertificationSkills")
+  shiftRequirements ShiftRequirement[]
+}
+
+model Certification {
+  id String @id @default(cuid())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  locationId String
+  location   Location @relation(fields: [locationId], references: [id])
+
+  skills Skill[] @relation("CertificationSkills")
+
+  createdAt DateTime @default(now())
+
+  /**
+   * Prevent duplicate certification for same location
+   */
+  @@unique([userId, locationId])
+}
+
+model Availability {
+  id String @id @default(cuid())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  dayOfWeek Int
+  startHour Int
+  endHour   Int
+
+  createdAt DateTime @default(now())
+
+  /**
+   * Prevent multiple availability rules per day
+   */
+  @@unique([userId, dayOfWeek])
+  @@index([userId])
+}
+
+model AvailabilityException {
+  id String @id @default(cuid())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  date DateTime
+
+  startTime DateTime?
+  endTime   DateTime?
+
+  type ExceptionType
+
+  createdAt DateTime @default(now())
+
+  @@index([userId, date])
+}
+
+model Shift {
+  id String @id @default(cuid())
+
+  locationId String
+  location   Location @relation(fields: [locationId], references: [id])
+
+  date DateTime
+
+  startTime DateTime
+  endTime   DateTime
+
+  status ShiftStatus
+
+  isPremium Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  assignments  ShiftAssignment[]
+  requirements ShiftRequirement[]
+
+  swapRequests SwapRequest[]
+  dropRequests DropRequest[]
+
+  /**
+   * Scheduling queries
+   */
+
+  @@index([locationId, date])
+  @@index([startTime, endTime])
+}
+
+model ShiftRequirement {
+  id String @id @default(cuid())
+
+  shiftId String
+  shift   Shift  @relation(fields: [shiftId], references: [id])
+
+  skillId String
+  skill   Skill  @relation(fields: [skillId], references: [id])
+
+  quantity Int
+
+  /**
+   * Prevent duplicate skill requirements
+   */
+  @@unique([shiftId, skillId])
+  @@index([skillId])
+}
+
+model ShiftAssignment {
+  id String @id @default(cuid())
+
+  shiftId String
+  shift   Shift  @relation(fields: [shiftId], references: [id])
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  createdAt DateTime @default(now())
+
+  /**
+   * Prevent duplicate assignments
+   */
+  @@unique([shiftId, userId])
+  /**
+   * Critical scheduling queries
+   */
+  @@index([userId])
+  @@index([userId, shiftId])
+}
+
+model SwapRequest {
+  id String @id @default(cuid())
+
+  shiftId String
+  shift   Shift  @relation(fields: [shiftId], references: [id])
+
+  fromUserId String
+  fromUser   User   @relation("SwapFromUser", fields: [fromUserId], references: [id])
+
+  toUserId String?
+  toUser   User?   @relation("SwapToUser", fields: [toUserId], references: [id])
+
+  status SwapStatus
+
+  approvedById String?
+  approvedBy   User?   @relation(fields: [approvedById], references: [id])
+
+  requestedAt DateTime  @default(now())
+  approvedAt  DateTime?
+
+  /**
+   * Query optimization
+   */
+
+  @@index([shiftId, status])
+  @@index([fromUserId])
+}
+
+model DropRequest {
+  id String @id @default(cuid())
+
+  shiftId String
+  shift   Shift  @relation(fields: [shiftId], references: [id])
+
+  userId    String
+  offeredBy User   @relation("offeredBy", fields: [userId], references: [id])
+
+  claimedById String?
+  claimedBy   User?   @relation("claimedBy", fields: [claimedById], references: [id])
+
+  expiresAt DateTime
+
+  status SwapStatus
+
+  createdAt DateTime @default(now())
+
+  @@index([shiftId, status])
+  @@index([expiresAt])
+}
+
+model Notification {
+  id String @id @default(cuid())
+
+  userId String
+  user   User   @relation(fields: [userId], references: [id])
+
+  message String
+
+  read Boolean @default(false)
+
+  createdAt DateTime @default(now())
+
+  /**
+   * Notification center queries
+   */
+
+  @@index([userId, read])
+}
+
+model NotificationPreference {
+  id String @id @default(cuid())
+
+  userId String @unique
+  user   User   @relation(fields: [userId], references: [id])
+
+  emailEnabled Boolean @default(false)
+  inAppEnabled Boolean @default(true)
+}
+
+model AuditLog {
+  id String @id @default(cuid())
+
+  entityType String
+  entityId   String
+
+  action String
+
+  before Json?
+  after  Json?
+
+  performedById String
+  performedBy   User   @relation("performedBy", fields: [performedById], references: [id])
+
+  createdAt DateTime @default(now())
+
+  /**
+   * Audit queries
+   */
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+}
