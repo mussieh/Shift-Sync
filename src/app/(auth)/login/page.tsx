@@ -1,5 +1,5 @@
 import { auth } from "@/auth";
-
+import LoginForm from "@/components/auth/LoginForm";
 import { Metadata } from "next";
 import { redirect } from "next/navigation";
 
@@ -13,6 +13,8 @@ const LoginPage = async () => {
     if (session?.user) {
         return redirect("/dashboard");
     }
+
+    return <LoginForm />;
 };
 
 export default LoginPage;
