@@ -18,6 +18,16 @@ This project is a **Priority Soft Full-Stack Developer Assessment take-home proj
 
 ---
 
+## Architecture Overview
+
+ShiftSync follows a server-first architecture using Next.js Server Components and Server Actions.
+
+- UI rendered with React Server Components
+- Business logic handled via server actions
+- Prisma manages database access
+- Supabase provides realtime subscriptions
+- Auth.js handles authentication and RBAC
+
 ## Features
 
 ### User Management & Roles
