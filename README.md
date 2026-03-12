@@ -183,8 +183,8 @@ export const matcher = ['/((?!api|_next/static|_next/image|favicon.ico|sitemap.x
 
 ## Links
 
-- Deployed App: [Vercel Link]
-- Repository: [GitHub Repository Link]
+- Deployed App: [Vercel Link](https://shift-sync-tan.vercel.app/login)
+- Repository: [GitHub Repository Link](https://github.com/mussieh/Shift-Sync)
 
 ---
 
