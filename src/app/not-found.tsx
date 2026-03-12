@@ -12,7 +12,7 @@ const NotFound = () => {
                     height={400}
                     priority
                 />
-                <div className="text-center text-h1 text-custom-primary">
+                <div className="text-center text-2xl text-blue-500">
                     <Link href="/">Return Home</Link>
                 </div>
             </section>

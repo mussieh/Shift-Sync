@@ -6,25 +6,14 @@ import { getToken } from "next-auth/jwt";
 export const protectedRoutes = [
     "/dashboard",
     "/schedule",
-    "/staff",
-    "/on-duty",
     "/swaps",
-    "/locations",
-    "/reports",
+    "/analytics",
     "/notifications",
-    "/profile",
-    "/audit-logs",
+    "/audit",
 ];
 
 // Routes only accessible by ADMIN or MANAGER
-export const adminManagerOnlyRoutes = [
-    "/dashboard",
-    "/locations",
-    "/audit-logs",
-    "/on-duty",
-    "/reports",
-    "/staff",
-];
+export const adminManagerOnlyRoutes = ["/audit", "/analytics"];
 
 const cookieName =
     process.env.NODE_ENV === "production"

@@ -4,32 +4,38 @@ import { prisma } from "@/lib/db/prisma";
 import { requireAuth } from "./user";
 import { Role, SwapStatus } from "../../../generated/prisma/client";
 
-/**
- * Returns start and end Date objects for the current week (Sunday -> Saturday)
- */
-function getWeekRange(referenceDate = new Date()) {
-    const start = new Date(referenceDate);
-    start.setDate(start.getDate() - start.getDay());
-    start.setHours(0, 0, 0, 0);
-
-    const end = new Date(start);
-    end.setDate(start.getDate() + 7);
-    end.setHours(23, 59, 59, 999);
-
-    return { start, end };
+// ----------------------
+// Types
+// ----------------------
+interface StaffStats {
+    role: "STAFF";
+    firstName: string;
+    upcomingShifts: number;
+    weeklyHours: number;
+    pendingSwaps: number;
 }
 
-/**
- * Fetches dashboard stats for the logged-in user.
- * Optimized for both STAFF and MANAGER/ADMIN dashboards.
- * @param onDutyLimit Number of "on duty now" assignments to fetch for manager/admin
- */
-export async function fetchDashboardStats({ onDutyLimit = 10 } = {}) {
-    // 1️⃣ Get logged-in user
+interface ManagerAdminStats {
+    role: "MANAGER" | "ADMIN";
+    firstName: string;
+    pendingApprovals: number;
+    totalStaff: number;
+    onDutyAssignments: {
+        user: { firstName: string; lastName: string };
+        shift: { startTime: Date; endTime: Date; location: { name: string } };
+        location: { name: string };
+    }[];
+}
+
+export type DashboardStats = StaffStats | ManagerAdminStats;
+
+// -----------------------
+// Fetch Dashboard Stats
+// -----------------------
+export async function fetchDashboardStats(): Promise<DashboardStats> {
     const user = await requireAuth();
     const userId = user.id;
 
-    // 2️⃣ Fetch user + managed locations (for managers)
     const fullUser = await prisma.user.findUnique({
         where: { id: userId },
         include: { managedLocations: { select: { id: true } } },
@@ -41,45 +47,29 @@ export async function fetchDashboardStats({ onDutyLimit = 10 } = {}) {
     // -------------------
     // STAFF DASHBOARD
     // -------------------
-    if (fullUser.role === Role.STAFF) {
-        const { start: weekStart, end: weekEnd } = getWeekRange(now);
-
-        // Parallel queries for speed
-        const [upcomingShiftsCount, weeklyHoursResult, pendingSwaps] =
-            await Promise.all([
-                // Count upcoming shifts
-                prisma.shiftAssignment.count({
-                    where: {
-                        userId,
-                        shift: { startTime: { gte: now } },
-                    },
-                }),
-
-                // Sum weekly hours directly in DB
-                prisma.$queryRaw<{ weeklyHours: number }[]>`
-                    SELECT
-                        COALESCE(SUM(EXTRACT(EPOCH FROM ("shift"."endTime" - "shift"."startTime")) / 3600),0) AS "weeklyHours"
-                    FROM "ShiftAssignment" AS "sa"
-                    INNER JOIN "Shift" AS "shift" ON "sa"."shiftId" = "shift"."id"
-                    WHERE "sa"."userId" = ${userId}
-                      AND "shift"."startTime" >= ${weekStart}
-                      AND "shift"."startTime" < ${weekEnd}
-                `,
-
-                // Count pending swaps
-                prisma.swapRequest.count({
-                    where: { fromUserId: userId, status: SwapStatus.PENDING },
-                }),
-            ]);
-
-        const weeklyHours = weeklyHoursResult[0]?.weeklyHours ?? 0;
+    if (fullUser.role === "STAFF") {
+        const [counts] = await prisma.$queryRaw<
+            {
+                upcomingShifts: number;
+                weeklyHours: number;
+                pendingSwaps: number;
+            }[]
+        >`
+      SELECT
+        COUNT(*) FILTER (WHERE sa."userId" = ${userId} AND shift."startTime" >= ${now}) AS "upcomingShifts",
+        COALESCE(SUM(EXTRACT(EPOCH FROM (shift."endTime" - shift."startTime"))/3600),0) AS "weeklyHours",
+        COUNT(*) FILTER (WHERE sr."status"='PENDING' AND sr."fromUserId"=${userId}) AS "pendingSwaps"
+      FROM "ShiftAssignment" sa
+      LEFT JOIN "Shift" shift ON sa."shiftId" = shift.id
+      LEFT JOIN "SwapRequest" sr ON sr."fromUserId" = sa."userId";
+    `;
 
         return {
-            role: fullUser.role,
+            role: "STAFF",
             firstName: fullUser.firstName,
-            upcomingShifts: upcomingShiftsCount,
-            weeklyHours: Number(weeklyHours.toFixed(1)),
-            pendingSwaps,
+            upcomingShifts: Number(counts.upcomingShifts),
+            weeklyHours: Number(counts.weeklyHours.toFixed(1)),
+            pendingSwaps: Number(counts.pendingSwaps),
         };
     }
 
@@ -87,25 +77,22 @@ export async function fetchDashboardStats({ onDutyLimit = 10 } = {}) {
     // MANAGER / ADMIN DASHBOARD
     // -------------------
     const locationIds =
-        fullUser.role === Role.MANAGER
+        fullUser.role === "MANAGER"
             ? fullUser.managedLocations.map((l) => l.id)
-            : [];
+            : undefined; // undefined = all locations for admin
 
-    const [onDutyAssignments, pendingApprovals, totalStaff] = await Promise.all(
-        [
-            // Get currently on-duty assignments (top N)
+    const [onDutyAssignmentsRaw, pendingApprovals, totalStaff] =
+        await Promise.all([
             prisma.shiftAssignment.findMany({
                 where: {
                     shift: {
                         startTime: { lte: now },
                         endTime: { gte: now },
-                        ...(fullUser.role === Role.MANAGER && {
-                            locationId: { in: locationIds },
-                        }),
+                        ...(locationIds
+                            ? { locationId: { in: locationIds } }
+                            : {}),
                     },
                 },
-                take: onDutyLimit,
-                orderBy: { shift: { startTime: "asc" } },
                 select: {
                     user: { select: { firstName: true, lastName: true } },
                     shift: {
@@ -116,21 +103,28 @@ export async function fetchDashboardStats({ onDutyLimit = 10 } = {}) {
                         },
                     },
                 },
+                orderBy: { shift: { startTime: "asc" } },
             }),
-
-            // Pending swap requests count
             prisma.swapRequest.count({ where: { status: SwapStatus.PENDING } }),
-
-            // Total staff count
             prisma.user.count({ where: { role: Role.STAFF } }),
-        ],
-    );
+        ]);
+
+    // Convert shift times to JS Date
+    const onDutyAssignments = onDutyAssignmentsRaw.map((a) => ({
+        user: a.user,
+        shift: {
+            ...a.shift,
+            startTime: new Date(a.shift.startTime),
+            endTime: new Date(a.shift.endTime),
+        },
+        location: { name: a.shift.location.name },
+    }));
 
     return {
         role: fullUser.role,
         firstName: fullUser.firstName,
-        onDutyAssignments,
         pendingApprovals,
         totalStaff,
+        onDutyAssignments,
     };
 }

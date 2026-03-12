@@ -11,7 +11,7 @@ const Topbar = () => {
     const { isOpen, toggle } = useSidebarStore();
 
     return (
-        <header className="sticky top-0 z-50 w-full h-24 border-b-2 border-b-[#cfd8ed] bg-[#0E172B] p-6 flex gap-8 md:justify-between items-center">
+        <header className="sticky top-0 z-50 w-full h-24 border-b-2 border-b-[#2C3A3F] bg-[#0E172B] p-6 flex gap-8 md:justify-between items-center">
             <div>
                 <Link className="flex gap-4" href="/dashboard">
                     <h1 className="text-2xl font-semibold hidden md:block text-white">

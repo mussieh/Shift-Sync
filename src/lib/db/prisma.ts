@@ -16,6 +16,10 @@ export const prisma =
     globalForPrisma.prisma ||
     new PrismaClient({
         adapter,
+        transactionOptions: {
+            maxWait: 10_000, // 10 seconds
+            timeout: 60_000, // 60 seconds
+        },
     });
 
 // Store instance globally in dev to avoid multiple clients

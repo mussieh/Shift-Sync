@@ -15,3 +15,23 @@ export const handleError = (
 ): ErrorState => {
     return { success: false, message: defaultMessage };
 };
+
+export const isPremiumShift = (start: Date, end: Date) => {
+    const premiumStartHour = 18; // 6 PM
+    const premiumEndHour = 23; // 11 PM
+
+    const current = new Date(start);
+
+    while (current < end) {
+        const day = current.getDay(); // 5 = Friday, 6 = Saturday
+        if (day === 5 || day === 6) {
+            const hour = current.getHours();
+            if (hour >= premiumStartHour && hour <= premiumEndHour) {
+                return true;
+            }
+        }
+        current.setHours(current.getHours() + 1);
+    }
+
+    return false;
+};

@@ -1,10 +1,10 @@
 import { auth } from "@/auth";
 import { ReactNode } from "react";
 import { redirect } from "next/navigation";
-import ClientModals from "@/components/common/ClientModals";
 import Sidebar from "@/components/common/Sidebar";
 import Topbar from "@/components/common/Topbar";
 import ClientSessionRefresher from "@/components/auth/ClientSessionRefresher";
+import SupabaseBroadcastProvider from "@/components/supabase/SupabaseBroadcastProvider";
 
 type ProtectedRoutesLayoutProps = {
     children: ReactNode;
@@ -23,6 +23,7 @@ const ProtectedRoutesLayout = async ({
 
     return (
         <>
+            <SupabaseBroadcastProvider />
             <ClientSessionRefresher />
             <Topbar />
             <main className="flex w-screen h-[calc(100vh-6rem)] bg-[#F9FAFC]">
@@ -31,8 +32,6 @@ const ProtectedRoutesLayout = async ({
                     {children}
                 </section>
             </main>
-
-            {/* <ClientModals /> */}
         </>
     );
 };

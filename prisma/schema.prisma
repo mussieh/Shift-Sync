@@ -1,9 +1,6 @@
 // This is your Prisma schema file,
 // learn more about it in the docs: https://pris.ly/d/prisma-schema
 
-// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
-// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
-
 generator client {
   provider = "prisma-client"
   output   = "../generated/prisma"
@@ -26,6 +23,7 @@ enum ShiftStatus {
 
 enum SwapStatus {
   PENDING
+  ACCEPTED
   APPROVED
   REJECTED
   CANCELLED
@@ -48,31 +46,24 @@ model User {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  /**
-   * RELATIONS
-   */
-
-  certifications Certification[]
-
+  certifications         Certification[]
   availabilities         Availability[]
   availabilityExceptions AvailabilityException[]
+  shifts                 ShiftAssignment[]
+  notifications          Notification[]
+  preferences            NotificationPreference?
 
-  shifts ShiftAssignment[]
-
-  notifications Notification[]
-
-  preferences NotificationPreference?
-
-  swapRequestsFrom SwapRequest[] @relation("SwapFromUser")
-  swapRequestsTo   SwapRequest[] @relation("SwapToUser")
+  swapRequestsFrom     SwapRequest[] @relation("SwapFromUser")
+  swapRequestsTo       SwapRequest[] @relation("SwapToUser")
+  // FIX: removed the ambiguous unnamed SwapRequest[] relation that caused
+  // Prisma to generate a warning. approvedBy is now a named relation.
+  swapRequestsApproved SwapRequest[] @relation("SwapApprovedBy")
 
   dropRequests        DropRequest[] @relation("offeredBy")
   claimedDropRequests DropRequest[] @relation("claimedBy")
 
-  auditLogs AuditLog[] @relation("performedBy")
-
-  managedLocations Location[]    @relation("LocationManagers")
-  swapRequests     SwapRequest[]
+  auditLogs        AuditLog[] @relation("performedBy")
+  managedLocations Location[] @relation("LocationManagers")
 }
 
 model Location {
@@ -82,10 +73,6 @@ model Location {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-
-  /**
-   * RELATIONS
-   */
 
   managers       User[]          @relation("LocationManagers")
   certifications Certification[]
@@ -113,9 +100,6 @@ model Certification {
 
   createdAt DateTime @default(now())
 
-  /**
-   * Prevent duplicate certification for same location
-   */
   @@unique([userId, locationId])
 }
 
@@ -131,9 +115,6 @@ model Availability {
 
   createdAt DateTime @default(now())
 
-  /**
-   * Prevent multiple availability rules per day
-   */
   @@unique([userId, dayOfWeek])
   @@index([userId])
 }
@@ -162,27 +143,19 @@ model Shift {
   locationId String
   location   Location @relation(fields: [locationId], references: [id])
 
-  date DateTime
-
+  date      DateTime
   startTime DateTime
   endTime   DateTime
-
-  status ShiftStatus
-
-  isPremium Boolean @default(false)
+  status    ShiftStatus
+  isPremium Boolean     @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   assignments  ShiftAssignment[]
   requirements ShiftRequirement[]
-
   swapRequests SwapRequest[]
   dropRequests DropRequest[]
-
-  /**
-   * Scheduling queries
-   */
 
   @@index([locationId, date])
   @@index([startTime, endTime])
@@ -199,9 +172,6 @@ model ShiftRequirement {
 
   quantity Int
 
-  /**
-   * Prevent duplicate skill requirements
-   */
   @@unique([shiftId, skillId])
   @@index([skillId])
 }
@@ -217,13 +187,7 @@ model ShiftAssignment {
 
   createdAt DateTime @default(now())
 
-  /**
-   * Prevent duplicate assignments
-   */
   @@unique([shiftId, userId])
-  /**
-   * Critical scheduling queries
-   */
   @@index([userId])
   @@index([userId, shiftId])
 }
@@ -242,18 +206,17 @@ model SwapRequest {
 
   status SwapStatus
 
+  // FIX: named relation to resolve Prisma ambiguity on the User side
   approvedById String?
-  approvedBy   User?   @relation(fields: [approvedById], references: [id])
+  approvedBy   User?   @relation("SwapApprovedBy", fields: [approvedById], references: [id])
 
   requestedAt DateTime  @default(now())
   approvedAt  DateTime?
 
-  /**
-   * Query optimization
-   */
-
   @@index([shiftId, status])
   @@index([fromUserId])
+  // Supports the Staff B "Incoming" tab query efficiently
+  @@index([toUserId, status])
 }
 
 model DropRequest {
@@ -269,13 +232,17 @@ model DropRequest {
   claimedBy   User?   @relation("claimedBy", fields: [claimedById], references: [id])
 
   expiresAt DateTime
-
-  status SwapStatus
+  // NOTE: DropStatus should ideally be its own enum (PENDING/APPROVED/CANCELLED)
+  // rather than reusing SwapStatus. Keeping SwapStatus here to avoid a migration
+  // during this iteration — track as tech debt.
+  status    SwapStatus
 
   createdAt DateTime @default(now())
 
   @@index([shiftId, status])
   @@index([expiresAt])
+  // Supports getAvailableDrops filter efficiently
+  @@index([status, expiresAt])
 }
 
 model Notification {
@@ -285,14 +252,9 @@ model Notification {
   user   User   @relation(fields: [userId], references: [id])
 
   message String
-
-  read Boolean @default(false)
+  read    Boolean @default(false)
 
   createdAt DateTime @default(now())
-
-  /**
-   * Notification center queries
-   */
 
   @@index([userId, read])
 }
@@ -322,10 +284,6 @@ model AuditLog {
   performedBy   User   @relation("performedBy", fields: [performedById], references: [id])
 
   createdAt DateTime @default(now())
-
-  /**
-   * Audit queries
-   */
 
   @@index([entityType, entityId])
   @@index([createdAt])

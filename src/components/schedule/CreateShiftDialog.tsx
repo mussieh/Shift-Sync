@@ -1,36 +1,38 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState, useCallback } from "react";
 import { format } from "date-fns";
-import { Calendar as CalendarIcon } from "lucide-react";
+import { toast } from "sonner";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ClipLoader } from "react-spinners";
+
+import { createShift } from "@/lib/actions/schedule";
+import { getSkills } from "@/lib/actions/skills";
+import { Location, Skill } from "../../../generated/prisma/client";
+
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import {
+    Select,
+    SelectTrigger,
+    SelectContent,
+    SelectItem,
+    SelectValue,
+} from "@/components/ui/select";
 import {
     Dialog,
     DialogContent,
     DialogHeader,
     DialogTitle,
 } from "@/components/ui/dialog";
-import {
-    Select,
-    SelectContent,
-    SelectItem,
-    SelectTrigger,
-    SelectValue,
-} from "@/components/ui/select";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Button } from "@/components/ui/button";
-import { Label } from "@/components/ui/label";
 import { Calendar } from "@/components/ui/calendar";
 import {
     Popover,
-    PopoverContent,
     PopoverTrigger,
+    PopoverContent,
 } from "@/components/ui/popover";
-import { toast } from "sonner";
-import { Location, Skill } from "../../../generated/prisma/client";
-import { createShift } from "@/lib/actions/schedule";
-import { getSkills } from "@/lib/actions/skills";
-import { Input } from "../ui/input";
-import { GridLoader } from "react-spinners";
+import { Calendar as CalendarIcon } from "lucide-react";
 
 interface Props {
     open: boolean;
@@ -40,6 +42,15 @@ interface Props {
     defaultDate?: Date;
 }
 
+interface ShiftForm {
+    locationId: string;
+    date: Date | undefined;
+    startTime: string;
+    endTime: string;
+    isPremium: boolean;
+    requirements: Record<string, number>;
+}
+
 export default function CreateShiftDialog({
     open,
     onOpenChange,
@@ -47,242 +58,224 @@ export default function CreateShiftDialog({
     userId,
     defaultDate,
 }: Props) {
-    const [skills, setSkills] = useState<Skill[]>([]);
-    const [loading, setLoading] = useState(false);
+    const queryClient = useQueryClient();
 
-    const [locationId, setLocationId] = useState<string>("");
-    const [date, setDate] = useState<Date | undefined>(defaultDate);
-    const [startTime, setStartTime] = useState<string>("");
-    const [endTime, setEndTime] = useState<string>("");
-    const [isPremium, setIsPremium] = useState<boolean>(false);
-    const [requirements, setRequirements] = useState<Record<string, number>>(
-        {},
+    const [form, setForm] = useState<ShiftForm>({
+        locationId: "",
+        date: defaultDate,
+        startTime: "",
+        endTime: "",
+        isPremium: false,
+        requirements: {},
+    });
+
+    const setField = useCallback(
+        <K extends keyof ShiftForm>(field: K, value: ShiftForm[K]) => {
+            setForm((prev) => ({ ...prev, [field]: value }));
+        },
+        [],
     );
-    const [skillsLoading, setSkillsLoading] = useState(false);
 
-    useEffect(() => {
-        if (!open) return;
+    // ------------------------
+    // Fetch skills
+    // ------------------------
+    const { data: skills = [], isLoading: skillsLoading } = useQuery<Skill[]>({
+        queryKey: ["skills"],
+        queryFn: getSkills,
+        staleTime: 1000 * 60 * 5, // 5 min cache
+    });
 
-        const loadSkills = async () => {
-            setSkillsLoading(true); // start loading
-            try {
-                const skills = await getSkills();
-                setSkills(skills);
-            } catch (err) {
-                console.error(err);
-                toast.error("Failed to load skills");
-            } finally {
-                setSkillsLoading(false); // stop loading
+    // ------------------------
+    // Create Shift Mutation
+    // ------------------------
+    const mutation = useMutation({
+        mutationFn: () =>
+            createShift(
+                userId,
+                form.locationId,
+                form.date!,
+                parseTime(form.date!, form.startTime),
+                parseTime(form.date!, form.endTime),
+                Object.entries(form.requirements)
+                    .filter(([_, qty]) => qty > 0)
+                    .map(([skillId, quantity]) => ({ skillId, quantity })),
+            ),
+        onSuccess: (res) => {
+            if (res.success) {
+                toast.success("Shift created successfully");
+                onOpenChange(false);
+
+                // Reset form
+                setForm({
+                    locationId: "",
+                    date: defaultDate,
+                    startTime: "",
+                    endTime: "",
+                    isPremium: false,
+                    requirements: {},
+                });
+
+                // Invalidate weekShifts cache
+                queryClient.invalidateQueries({ queryKey: ["weekShifts"] });
+            } else {
+                toast.error(res.error ?? "Failed to create shift");
             }
-        };
+        },
+        onError: (err: unknown) => {
+            if (err instanceof Error) toast.error(err.message);
+            else toast.error("Failed to create shift");
+        },
+    });
 
-        loadSkills();
-    }, [open]);
+    // ------------------------
+    // Helpers
+    // ------------------------
+    function parseTime(date: Date, time: string): Date {
+        const [h, m] = time.split(":").map(Number);
+        const dt = new Date(date);
+        dt.setHours(h, m, 0, 0);
+        return dt;
+    }
 
-    const handleSubmit = async () => {
-        if (!locationId || !date || !startTime || !endTime) {
+    const handleSubmit = () => {
+        if (
+            !form.locationId ||
+            !form.date ||
+            !form.startTime ||
+            !form.endTime
+        ) {
             toast.error("Please fill in all required fields");
             return;
         }
 
-        setLoading(true);
-        try {
-            const [sh, sm] = startTime.split(":").map(Number);
-            const [eh, em] = endTime.split(":").map(Number);
+        const requirements = Object.entries(form.requirements)
+            .filter(([_, qty]) => qty > 0)
+            .map(([skillId, quantity]) => ({ skillId, quantity }));
 
-            const startDateTime = new Date(date);
-            startDateTime.setHours(sh, sm, 0, 0);
-
-            const endDateTime = new Date(date);
-            endDateTime.setHours(eh, em, 0, 0);
-
-            if (endDateTime <= startDateTime)
-                endDateTime.setDate(endDateTime.getDate() + 1);
-
-            const reqArray = Object.entries(requirements)
-                .filter(([, qty]) => qty > 0)
-                .map(([skillId, quantity]) => ({ skillId, quantity }));
-
-            await createShift(
-                userId,
-                locationId,
-                date,
-                startDateTime,
-                endDateTime,
-                reqArray,
-                isPremium,
-            );
-
-            toast.success("Shift created successfully");
-            onOpenChange(false);
-
-            // Reset form
-            setLocationId("");
-            setDate(defaultDate);
-            setStartTime("");
-            setEndTime("");
-            setIsPremium(false);
-            setRequirements({});
-        } catch (err: unknown) {
-            toast.error(
-                err instanceof Error ? err.message : "Failed to create shift",
-            );
-        } finally {
-            setLoading(false);
+        if (requirements.length === 0) {
+            toast.error("Please add at least one staff requirement");
+            return;
         }
+
+        mutation.mutate();
     };
 
+    // ------------------------
+    // Render
+    // ------------------------
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="bg-background fixed top-[50%] left-[50%] z-50 grid w-full max-w-md sm:max-w-lg -translate-x-1/2 -translate-y-1/2 gap-4 rounded-lg border p-6 shadow-lg duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out">
-                <DialogHeader className="flex flex-col gap-2 text-center sm:text-left">
-                    <DialogTitle className="text-lg leading-none font-semibold">
+            <DialogContent className="fixed top-[50%] left-[50%] -translate-x-1/2 -translate-y-1/2 max-w-md w-full p-6 rounded-lg shadow-lg grid gap-4 bg-background">
+                <DialogHeader>
+                    <DialogTitle className="font-bold text-2xl">
                         Create New Shift
                     </DialogTitle>
                 </DialogHeader>
 
-                <div className="space-y-4 mt-2">
-                    {/* Location */}
-                    <div>
-                        <Label
-                            htmlFor="location"
-                            className="flex items-center gap-2 text-sm leading-none font-medium select-none mb-2"
-                        >
-                            Location
-                        </Label>
-                        <Select
-                            value={locationId}
-                            onValueChange={setLocationId}
-                        >
-                            <SelectTrigger
-                                id="location"
-                                className="border-input flex w-full items-center justify-between gap-2 rounded-md border bg-input-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                            >
-                                <SelectValue placeholder="Select location" />
-                            </SelectTrigger>
-                            <SelectContent className="bg-background rounded-md border shadow-md p-2">
-                                {locations.map((loc) => (
-                                    <SelectItem key={loc.id} value={loc.id}>
-                                        {loc.name}
-                                    </SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
-                    </div>
+                {/* Location */}
+                <div>
+                    <Label className="mb-2" htmlFor="location">
+                        Location
+                    </Label>
+                    <Select
+                        value={form.locationId}
+                        onValueChange={(val) => setField("locationId", val)}
+                    >
+                        <SelectTrigger id="location">
+                            <SelectValue placeholder="Select location" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {locations.map((loc) => (
+                                <SelectItem key={loc.id} value={loc.id}>
+                                    {loc.name}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                </div>
 
-                    {/* Date Picker */}
-                    <div>
-                        <Label className="flex items-center gap-2 text-sm leading-none font-medium select-none mb-2">
-                            Date
-                        </Label>
-                        <Popover>
-                            <PopoverTrigger asChild>
-                                <Button
-                                    variant="outline"
-                                    data-empty={!date}
-                                    className="w-full justify-start text-left font-normal data-[empty=true]:text-muted-foreground"
-                                >
-                                    <CalendarIcon className="mr-2 h-4 w-4" />
-                                    {date ? (
-                                        format(date, "PPP")
-                                    ) : (
-                                        <span>Pick a date</span>
-                                    )}
-                                </Button>
-                            </PopoverTrigger>
-                            <PopoverContent className="w-full p-0">
-                                <Calendar
-                                    mode="single"
-                                    selected={date}
-                                    onSelect={(d) => d && setDate(d)}
-                                />
-                            </PopoverContent>
-                        </Popover>
-                    </div>
-
-                    {/* Start / End Time */}
-                    <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <Label
-                                htmlFor="startTime"
-                                className="flex items-center gap-2 text-sm leading-none font-medium select-none mb-2"
+                {/* Date Picker */}
+                <div>
+                    <Label className="mb-2">Date</Label>
+                    <Popover>
+                        <PopoverTrigger asChild>
+                            <Button
+                                variant="outline"
+                                className="w-full justify-start text-left font-normal"
                             >
-                                Start Time
-                            </Label>
-                            <Input
-                                id="startTime"
-                                type="time"
-                                className="border-input flex h-9 w-full min-w-0 rounded-md border px-3 py-1 bg-input-background outline-none"
-                                value={startTime}
-                                onChange={(e) => setStartTime(e.target.value)}
+                                <CalendarIcon className="mr-2 h-4 w-4" />
+                                {form.date
+                                    ? format(form.date, "PPP")
+                                    : "Pick a date"}
+                            </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-full p-0">
+                            <Calendar
+                                mode="single"
+                                selected={form.date}
+                                onSelect={(d) => d && setField("date", d)}
                             />
-                        </div>
-                        <div>
-                            <Label
-                                htmlFor="endTime"
-                                className="flex items-center gap-2 text-sm leading-none font-medium select-none mb-2"
-                            >
-                                End Time
-                            </Label>
-                            <Input
-                                id="endTime"
-                                type="time"
-                                className="border-input flex h-9 w-full min-w-0 rounded-md border px-3 py-1 bg-input-background outline-none"
-                                value={endTime}
-                                onChange={(e) => setEndTime(e.target.value)}
-                            />
-                        </div>
-                    </div>
+                        </PopoverContent>
+                    </Popover>
+                </div>
 
-                    {/* Premium */}
-                    <div className="flex items-center space-x-2 my-10">
-                        <Checkbox
-                            id="premium"
-                            checked={isPremium}
-                            onCheckedChange={(v) => setIsPremium(v as boolean)}
+                {/* Start / End Time */}
+                <div className="grid grid-cols-2 gap-4">
+                    <div>
+                        <Label className="mb-2">Start Time</Label>
+                        <Input
+                            type="time"
+                            value={form.startTime}
+                            onChange={(e) =>
+                                setField("startTime", e.target.value)
+                            }
                         />
-                        <Label htmlFor="premium" className="cursor-pointer">
-                            Premium Shift (Friday/Saturday evening)
-                        </Label>
                     </div>
-
-                    {/* Skill Requirements */}
                     <div>
-                        <Label className="flex items-center gap-2 text-sm leading-none font-medium select-none">
-                            Staff Requirements
-                        </Label>
-                        <div className="space-y-2 mt-2">
-                            {skillsLoading ? (
-                                <div className="flex justify-center py-4">
-                                    <GridLoader color="#0E172B" size={10} />
+                        <Label className="mb-2">End Time</Label>
+                        <Input
+                            type="time"
+                            value={form.endTime}
+                            onChange={(e) =>
+                                setField("endTime", e.target.value)
+                            }
+                        />
+                    </div>
+                </div>
+
+                {/* Skills */}
+                <div>
+                    <Label>Staff Requirements</Label>
+                    <div className="space-y-2 mt-2">
+                        {skillsLoading ? (
+                            <div className="flex justify-center py-4">
+                                <ClipLoader color="#0E172B" size={22} />
+                            </div>
+                        ) : (
+                            skills.map((skill) => (
+                                <div
+                                    key={skill.id}
+                                    className="flex items-center gap-2"
+                                >
+                                    <Label className="flex-1 min-w-20">
+                                        {skill.name}
+                                    </Label>
+                                    <Input
+                                        type="number"
+                                        min={0}
+                                        value={form.requirements[skill.id] ?? 0}
+                                        onChange={(e) =>
+                                            setField("requirements", {
+                                                ...form.requirements,
+                                                [skill.id]: Number(
+                                                    e.target.value,
+                                                ),
+                                            })
+                                        }
+                                    />
                                 </div>
-                            ) : (
-                                skills.map((skill) => (
-                                    <div
-                                        key={skill.id}
-                                        className="flex items-center gap-2"
-                                    >
-                                        <Label className="flex-1">
-                                            {skill.name}
-                                        </Label>
-                                        <Input
-                                            type="number"
-                                            min={0}
-                                            className="w-20 border-input flex h-9 min-w-0 rounded-md border px-3 py-1 bg-input-background outline-none"
-                                            value={requirements[skill.id] ?? 0}
-                                            onChange={(e) =>
-                                                setRequirements({
-                                                    ...requirements,
-                                                    [skill.id]: Number(
-                                                        e.target.value,
-                                                    ),
-                                                })
-                                            }
-                                        />
-                                    </div>
-                                ))
-                            )}
-                        </div>
+                            ))
+                        )}
                     </div>
                 </div>
 
@@ -290,10 +283,14 @@ export default function CreateShiftDialog({
                 <div className="flex gap-2 mt-4">
                     <Button
                         onClick={handleSubmit}
+                        disabled={mutation.isPending}
                         className="flex-1"
-                        disabled={loading}
                     >
-                        {loading ? "Creating..." : "Create Shift"}
+                        {mutation.isPending ? (
+                            <ClipLoader size={18} color="#fff" />
+                        ) : (
+                            "Create Shift"
+                        )}
                     </Button>
                     <Button
                         variant="outline"

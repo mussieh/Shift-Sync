@@ -7,17 +7,12 @@ import { prisma } from "@/lib/db/prisma";
  */
 export async function getSkills() {
     try {
-        const skills = await prisma.skill.findMany({
-            select: {
-                id: true,
-                name: true,
-            },
-            orderBy: { name: "asc" }, // optional: sorted alphabetically
+        return await prisma.skill.findMany({
+            select: { id: true, name: true },
+            orderBy: { name: "asc" },
         });
-
-        return skills;
     } catch (err) {
         console.error("Failed to fetch skills:", err);
-        return []; // return empty array instead of throwing
+        return [];
     }
 }

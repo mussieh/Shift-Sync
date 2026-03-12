@@ -18,7 +18,7 @@ const UnauthorizedPage = async () => {
                     priority
                 />
                 <div className="text-center text-[2rem] font-bold text-[#3B83F6]">
-                    <Link href="/dashboard">Go to Dashboard</Link>
+                    <Link href="/dashboard">Go to Dashboard Page</Link>
                 </div>
             </section>
         </main>

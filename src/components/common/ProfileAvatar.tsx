@@ -19,7 +19,9 @@ const ProfileAvatar = ({ style = "" }: ProfileAvatarProps) => {
     const { data: session } = useSession();
     const [menuVisible, setMenuVisible] = useState(false);
 
-    const userName = session?.user?.firstName ?? "U";
+    const fullName = session?.user?.firstName + " " + session?.user?.lastName;
+    const userName = fullName ?? "U";
+
     const userRole = session?.user?.role ?? "STAFF";
     const roleLabel = roleLabels[userRole] ?? "Staff";
     const userEmail = session?.user?.email ?? "";

@@ -5,7 +5,6 @@ import {
     Bell,
     Calendar,
     LayoutDashboard,
-    Settings,
     Users,
     ClipboardList,
     FileText,
@@ -25,14 +24,10 @@ import Link from "next/link";
 const sidebarIcons: { [key: string]: JSX.Element } = {
     "/dashboard": <LayoutDashboard size={18} />,
     "/schedule": <Calendar size={18} />,
-    "/staff": <Users size={18} />,
-    "/on-duty": <Users size={18} />,
     "/swaps": <ClipboardList size={18} />,
-    "/locations": <LocationEdit size={18} />,
-    "/reports": <ChartBarBig size={18} />,
+    "/analytics": <ChartBarBig size={18} />,
     "/notifications": <Bell size={18} />,
-    "/profile": <Settings size={18} />,
-    "/audit-logs": <FileText size={18} />,
+    "/audit": <FileText size={18} />,
 };
 
 type SidebarProps = {

@@ -59,8 +59,10 @@ export default function LoginForm() {
     useEffect(() => {
         if (data.success) {
             router.replace("/dashboard");
-        } else if (data.message) {
-            toast.error(data.message);
+        } else {
+            if (data.message) {
+                toast.error(data.message);
+            }
         }
     }, [data, router]);
 

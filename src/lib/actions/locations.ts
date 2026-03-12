@@ -11,17 +11,25 @@ export interface ManagedLocationFrontend {
 }
 
 /**
- * Fetch all locations managed by a user
- * Throws an error if something goes wrong
+ * Fetch locations a user can manage
+ * - Admins get all locations
+ * - Managers get only locations they manage
+ * - Staff get an empty array (they don't manage locations)
  */
 export async function getManagedLocations(
     userId: string,
+    role: "ADMIN" | "MANAGER" | "STAFF",
 ): Promise<ManagedLocationFrontend[]> {
     try {
+        if (role === "STAFF") return []; // Staff don't manage locations
+
+        const where =
+            role === "ADMIN"
+                ? {} // Admin: all locations
+                : { managers: { some: { id: userId } } }; // Manager: only managed locations
+
         const locations = await prisma.location.findMany({
-            where: {
-                managers: { some: { id: userId } },
-            },
+            where,
             select: {
                 id: true,
                 name: true,
@@ -33,7 +41,7 @@ export async function getManagedLocations(
 
         return locations;
     } catch (err) {
-        console.error("Failed to fetch managed locations:", err);
+        console.error("Failed to fetch locations:", err);
         throw new Error("Could not load locations. Please try again.");
     }
 }
