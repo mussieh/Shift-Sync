@@ -7,7 +7,7 @@ import { getUpcomingShiftsForUser } from "@/lib/actions/schedule";
 export default async function SwapPage() {
     const session = await auth();
 
-    // Fail safe — never crash with a non-null assertion on session
+    // Fail safe — redirect if not logged in
     if (!session?.user?.id) {
         redirect("/login");
     }
@@ -15,12 +15,18 @@ export default async function SwapPage() {
     const { id: userId, role } = session.user;
     const isStaff = role === "STAFF";
 
-    // Fetch in parallel; avoid wasted queries for roles that don't need the data
-    const [swaps, myShifts, availableDrops] = await Promise.all([
+    // Use Promise.allSettled to avoid crashing if one fetch fails
+    const results = await Promise.allSettled([
         getSwapPageData(userId),
         isStaff ? getUpcomingShiftsForUser(userId) : Promise.resolve([]),
         isStaff ? getAvailableDrops(userId) : Promise.resolve([]),
     ]);
+
+    // Extract results safely
+    const swaps = results[0].status === "fulfilled" ? results[0].value : [];
+    const myShifts = results[1].status === "fulfilled" ? results[1].value : [];
+    const availableDrops =
+        results[2].status === "fulfilled" ? results[2].value : [];
 
     return (
         <SwapsClient
